@@ -1,4 +1,4 @@
-name: CI
+name: Test & Deploy 
 
 on:
   push:
@@ -38,3 +38,24 @@ jobs:
       - name: Tear down containers
         if: always()
         run: docker compose -f docker-compose.yml down
+        
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    if: success()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Connect and Execute Commands
+        uses: appleboy/ssh-action@master
+        with:
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+             git pull origin main
+             docker-compose down
+             docker-compose -f docker-compose-stage.yml up -d --build
