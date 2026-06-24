@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
     branches:
       - main
@@ -17,23 +18,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build backend image
-        run: docker-compose -f docker-compose.yml build backend
+        run: docker compose -f docker-compose.yml build backend
 
       - name: Start dependencies (PostgreSQL & Redis)
-        run: docker-compose -f docker-compose.yml up -d db redis
+        run: docker compose -f docker-compose.yml up -d db redis
 
       - name: Wait for PostgreSQL to be ready
         run: |
-          until docker-compose -f docker-compose.yml exec -T db pg_isready -U user; do
+          until docker compose -f docker-compose.yml exec -T db pg_isready -U user; do
             echo "Waiting for postgres..."
             sleep 2
           done
 
       - name: Run migrations & tests
         run: |
-          docker-compose -f docker-compose.yml run --rm backend \
+          docker compose -f docker-compose.yml run --rm backend \
             sh -c "alembic upgrade head && pytest"
 
       - name: Tear down containers
         if: always()
-        run: docker-compose -f docker-compose.yml down
+        run: docker compose -f docker-compose.yml down
