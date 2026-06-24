@@ -1,4 +1,4 @@
-FROM docker.arvancloud.ir/python:3.12-slim
+FROM python:3.12-slim
 
 WORKDIR /usr/src/core
 
