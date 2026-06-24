@@ -1,0 +1,150 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: db
+    restart: always
+    environment:
+      POSTGRES_DB: postgres 
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    expose:
+      - 5232
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  redis:
+    container_name: redis
+    image: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/dev/Dockerfile
+    env_file:
+      - ./envs/dev/.env
+    working_dir: /usr/src/core
+    command: fastapi dev --host 0.0.0.0 --port 8000
+    container_name: backend
+    volumes:
+      - ./core:/usr/src/core
+    ports:
+      - 8000:8000
+    depends_on:
+      - db
+      - redis
+
+  smtp4dev:
+    image: rnwood/smtp4dev:v3
+    restart: always
+    ports:
+      # Change the number before : to the port the web interface should be accessible on
+      - '5000:80'
+      # Change the number before : to the port the SMTP server should be accessible on
+      - '25:25'
+      # Change the number before : to the port the IMAP server should be accessible on
+      - '143:143'
+    volumes:
+      # This is where smtp4dev stores the database..
+        - smtp4dev-data:/smtp4dev
+    environment:
+      # Uncomment to customise these settings
+      # This is not a complete list of the available settings.
+      # See the documentation in appsettings.json for a full list.
+
+      #Specifies the virtual path from web server root where SMTP4DEV web interface will be hosted. e.g. "/" or "/smtp4dev"
+      #- ServerOptions__BasePath=/smtp4dev
+
+      #Specifies the URLs the web UI will use inside the container.
+      - ServerOptions__Urls=http://*:80
+
+      #Specifies the server hostname. Used in auto-generated TLS certificate if enabled.
+      - ServerOptions__HostName=smtp4dev
+
+  master:
+    image: locustio/locust
+    ports:
+     - "8089:8089"
+    volumes:
+      - ./core/locust:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --master -H http://backend:8000
+  
+  locust_worker:
+    image: locustio/locust
+    volumes:
+      - ./core/locust:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --worker --master-host master
+    deploy:
+      replicas: 3
+
+    # Celery Worker
+  celery_worker:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/dev/Dockerfile
+    env_file:
+      - ./envs/dev/.env
+    working_dir: /usr/src/core
+    command: celery -A config.celery worker --loglevel=info --concurrency=4
+    container_name: celery_worker
+    volumes:
+      - ./core:/usr/src/core
+    depends_on:
+      - redis
+      - backend
+    restart: unless-stopped
+
+  # Celery Beat (برای وظایف زمانبندی شده)
+  celery_beat:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/dev/Dockerfile
+    env_file:
+      - ./envs/dev/.env
+    working_dir: /usr/src/core
+    command: celery -A config.celery beat --loglevel=info
+    container_name: celery_beat
+    volumes:
+      - ./core:/usr/src/core
+    depends_on:
+      - redis
+      - celery_worker
+    restart: unless-stopped
+
+  # Flower (مانیتورینگ Celery)
+  # flower:
+  #   build:
+  #     context: .
+  #     dockerfile: ./dockerfiles/dev/Dockerfile
+  #   env_file:
+  #     - ./envs/dev/.env
+  #   working_dir: /usr/src/core
+  #   command: celery -A tasks.worker flower --port=5555
+  #   container_name: flower
+  #   ports:
+  #     - "5555:5555"
+  #   depends_on:
+  #     - redis
+  #     - celery_worker
+  #   restart: unless-stopped
+
+    
+volumes:
+  smtp4dev-data:
